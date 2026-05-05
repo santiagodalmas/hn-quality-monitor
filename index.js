@@ -13,8 +13,9 @@ const { chromium } = require("playwright");
 const TARGET_COUNT = 100;
 const PAGE_LOAD_TIMEOUT_MS = 30_000;
 const MAX_PAGINATION_CLICKS = 10; // 30 items per page; 4 is enough, 10 is generous
-const RATE_LIMIT_MAX_RETRIES = 3;
-const RATE_LIMIT_BACKOFF_MS = 5_000;
+const RATE_LIMIT_MAX_RETRIES = 5;
+const RATE_LIMIT_BACKOFF_MS = 10_000;
+const POLITE_DELAY_MS = 1_500; // brief pause between successful page loads
 
 // Minimal ANSI colors — no dependency, degrades gracefully in plain terminals.
 const c = {
@@ -64,23 +65,53 @@ function parseHNTimestamp(title) {
   return isNaN(d.getTime()) ? null : d;
 }
 
-async function isRateLimited(page) {
-  // HN returns a plain text apology when rate limiting.
+// Returns { healthy: bool, reason: string } describing whether the current
+// page is a usable HN listing. Treats anything without article rows — empty
+// pages, Cloudflare challenges, HN's own apology — as unhealthy so we can
+// retry.
+async function pageHealth(page) {
   const body = await page.locator("body").innerText().catch(() => "");
-  return /not able to serve your requests/i.test(body);
+  if (/not able to serve your requests/i.test(body)) {
+    return { healthy: false, reason: "HN rate-limit apology" };
+  }
+  if (/just a moment|attention required|cloudflare/i.test(body)) {
+    return { healthy: false, reason: "Cloudflare challenge" };
+  }
+  const athingCount = await page.locator("tr.athing").count();
+  if (athingCount === 0) {
+    return { healthy: false, reason: "no article rows on page" };
+  }
+  return { healthy: true, reason: "ok" };
 }
 
 async function gotoWithRetry(page, url) {
   for (let attempt = 1; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: PAGE_LOAD_TIMEOUT_MS });
-    if (!(await isRateLimited(page))) return;
+    const health = await pageHealth(page);
+    if (health.healthy) return;
+    const waitMs = RATE_LIMIT_BACKOFF_MS * attempt;
     console.log(
-      `  ${c.yellow}rate-limited by HN, retrying in ${RATE_LIMIT_BACKOFF_MS / 1000}s ` +
+      `  ${c.yellow}page unhealthy (${health.reason}), retrying in ${waitMs / 1000}s ` +
         `(attempt ${attempt}/${RATE_LIMIT_MAX_RETRIES})${c.reset}`,
     );
-    await page.waitForTimeout(RATE_LIMIT_BACKOFF_MS * attempt);
+    await page.waitForTimeout(waitMs);
   }
-  throw new Error(`Hacker News kept returning rate-limit responses for ${url}`);
+  throw new Error(`Gave up loading ${url} — page never became healthy.`);
+}
+
+async function recoverIfUnhealthy(page, label) {
+  for (let attempt = 1; attempt <= RATE_LIMIT_MAX_RETRIES; attempt++) {
+    const health = await pageHealth(page);
+    if (health.healthy) return true;
+    const waitMs = RATE_LIMIT_BACKOFF_MS * attempt;
+    console.log(
+      `  ${c.yellow}${label} unhealthy (${health.reason}), backing off ${waitMs / 1000}s ` +
+        `and reloading (attempt ${attempt}/${RATE_LIMIT_MAX_RETRIES})${c.reset}`,
+    );
+    await page.waitForTimeout(waitMs);
+    await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+  }
+  return false;
 }
 
 async function collectArticlesOnPage(page) {
@@ -109,6 +140,9 @@ async function fetchFirstNArticles(page, n) {
   console.log(`  collected ${collected.length} so far`);
 
   while (collected.length < n && pageNum <= MAX_PAGINATION_CLICKS) {
+    // Be polite — HN rate-limits aggressively, especially against cloud IPs.
+    await page.waitForTimeout(POLITE_DELAY_MS);
+
     const moreLink = page.locator("a.morelink");
     if ((await moreLink.count()) === 0) {
       throw new Error(
@@ -121,14 +155,22 @@ async function fetchFirstNArticles(page, n) {
       page.waitForLoadState("domcontentloaded"),
       moreLink.first().click(),
     ]);
-    if (await isRateLimited(page)) {
-      // One backoff retry on the same "next" URL.
-      console.log(`  ${c.yellow}rate-limited mid-pagination, backing off...${c.reset}`);
-      await page.waitForTimeout(RATE_LIMIT_BACKOFF_MS);
-      await page.reload({ waitUntil: "domcontentloaded" });
+
+    if (!(await recoverIfUnhealthy(page, `page ${pageNum}`))) {
+      throw new Error(
+        `Page ${pageNum} stayed unhealthy after ${RATE_LIMIT_MAX_RETRIES} retries — ` +
+          `Hacker News appears to be rate-limiting this client.`,
+      );
     }
+
     console.log(`  ${c.dim}page ${pageNum}${c.reset} loaded — collecting articles...`);
+    const before = collected.length;
     collected.push(...(await collectArticlesOnPage(page)));
+    if (collected.length === before) {
+      throw new Error(
+        `Page ${pageNum} loaded but contained no articles after retries — aborting.`,
+      );
+    }
     console.log(`  collected ${collected.length} so far`);
   }
 
