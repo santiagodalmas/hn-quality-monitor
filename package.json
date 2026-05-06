@@ -1,10 +1,14 @@
 {
-  "name": "hn-sort-validator",
+  "name": "hn-quality-monitor",
   "version": "1.0.0",
-  "description": "Playwright script that validates the first 100 articles on Hacker News /newest are sorted newest-to-oldest.",
-  "main": "index.js",
+  "description": "Playwright-based quality monitor for Hacker News: UI sort validation, API contract checks, and UI/API cross-validation. Runs daily in CI; findings logged in /findings.",
   "scripts": {
-    "start": "node index.js"
+    "ui": "node src/ui/sort-validator.js",
+    "ui:headless": "node src/ui/sort-validator.js --headless",
+    "api": "node src/api/firebase-checks.js",
+    "crosscheck": "node src/crosscheck/ui-vs-api.js",
+    "crosscheck:headless": "node src/crosscheck/ui-vs-api.js --headless",
+    "all": "npm run api && npm run ui:headless && npm run crosscheck:headless"
   },
   "author": "Santiago Dalmas <santiagodalmas@gmail.com>",
   "license": "ISC",

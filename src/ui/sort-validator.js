@@ -3,8 +3,8 @@
 // are sorted from newest to oldest.
 //
 // Setup: npm install && npx playwright install chromium
-// Run:   node index.js              (headed — good for demos)
-//        node index.js --headless   (headless — good for CI)
+// Run:   node src/ui/sort-validator.js              (headed — good for demos)
+//        node src/ui/sort-validator.js --headless   (headless — good for CI)
 // Auto-headless when CI=true.
 // Exits with code 0 on success, 1 on failure.
 

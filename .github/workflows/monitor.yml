@@ -1,0 +1,60 @@
+name: monitor
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Daily at 12:00 UTC against live Hacker News.
+    - cron: "0 12 * * *"
+  workflow_dispatch:
+
+# Run jobs sequentially to be polite to HN's rate limits.
+jobs:
+  api:
+    name: API contract checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run API contract checks
+        run: node src/api/firebase-checks.js
+
+  ui:
+    name: UI sort validator
+    needs: [api]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run UI sort validator
+        run: node src/ui/sort-validator.js --headless
+
+  crosscheck:
+    name: UI vs API cross-check
+    needs: [api, ui]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - name: Run UI vs API cross-check
+        run: node src/crosscheck/ui-vs-api.js --headless
