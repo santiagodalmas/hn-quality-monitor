@@ -10,4 +10,5 @@ cause or lasting documentation value.
 
 ## Log
 
+- 2026-05-07 — [Recurrence: sustained Cloudflare blockade on GitHub Actions IPs](./2026-05-07-cloudflare-recurrence.md) *(Medium, Partially mitigated)*
 - 2026-05-05 — [Empty pagination response when running from GitHub Actions cloud IPs](./2026-05-05-cloud-ip-empty-pagination.md) *(Medium, Mitigated)*
