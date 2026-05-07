@@ -64,18 +64,27 @@ defers the trigger but doesn't prevent it.
 - **Pattern correlates with request cadence.** Run 2 got one page
   further than run 1, supporting the hypothesis that *slower is better*.
 
-## Mitigation applied
+## Mitigation applied (in stages)
 
-Bumped `POLITE_DELAY_MS` from 1500 → 5000 in
-[`src/ui/sort-validator.js`](../src/ui/sort-validator.js). This adds
-~10 extra seconds to a successful 4-page run (negligible), but should
-spread requests far enough apart to look more like a human reader and
-avoid tripping Cloudflare's per-IP rate window.
+The polite delay was tuned in two stages, with each bump reaching one
+more page before failing:
 
-This is a probabilistic fix, not a guarantee. If subsequent scheduled
-runs still fail, the answer is to **accept the failure as honest
-signal** and not chase Cloudflare's heuristics further with code
-changes — that game is unwinnable from cloud IPs.
+| Delay | Result |
+|---|---|
+| 1500 ms (original) | failed at page 2 (cron) / page 3 (manual re-run) |
+| 5000 ms (first bump) | failed at page 4 — reached 90/100 articles |
+| 10000 ms (second bump) | *to be verified by next scheduled run* |
+
+Each step shows a clear correlation: slowing the cadence pushes the
+challenge later in the run. Page 4 is the final page (4 × 30 = 120,
+sliced to 100), so a 10-second delay has a real chance of completing
+the full sequence.
+
+This is a probabilistic fix tuned by observed behavior, not a
+guarantee. If 10 seconds still isn't enough, the honest move is to
+**accept the failure as today's portfolio limitation** rather than
+chase Cloudflare's heuristics further with code changes — that game
+is unwinnable from cloud IPs.
 
 ## Alternatives considered and rejected
 
