@@ -5,7 +5,7 @@
 | Date     | 2026-05-07                                  |
 | Source   | UI                                          |
 | Severity | Medium (CI flakiness for the day; no user-facing impact) |
-| Status   | Partially mitigated (polite delay bumped 1.5s → 5s) |
+| Status   | Accepted as known weakness on 2026-05-07 (no further code change planned) |
 | Related  | [2026-05-05 — Empty pagination response when running from GitHub Actions cloud IPs](./2026-05-05-cloud-ip-empty-pagination.md) |
 
 ## Summary
@@ -64,27 +64,39 @@ defers the trigger but doesn't prevent it.
 - **Pattern correlates with request cadence.** Run 2 got one page
   further than run 1, supporting the hypothesis that *slower is better*.
 
-## Mitigation applied (in stages)
+## Tuning experiment
 
-The polite delay was tuned in two stages, with each bump reaching one
-more page before failing:
+The polite delay was tuned in three stages on 2026-05-07. Each row
+below is a separate CI run on the same SHA (apart from the constant
+itself), all from GitHub-hosted runners within ~30 minutes of each
+other:
 
-| Delay | Result |
-|---|---|
-| 1500 ms (original) | failed at page 2 (cron) / page 3 (manual re-run) |
-| 5000 ms (first bump) | failed at page 4 — reached 90/100 articles |
-| 10000 ms (second bump) | *to be verified by next scheduled run* |
+| Delay | Result | Notes |
+|---|---|---|
+| 1500 ms (original) | failed at page 2 (cron) / page 3 (manual re-run) | Variance suggests timing is the dominant variable |
+| 5000 ms | failed at page 4 — reached 90/100 articles before challenge | Big improvement over 1.5s |
+| 10000 ms | failed at page 4 — pages 2/3 now needed retries to recover, page 4 challenge persisted; job hit 5-min timeout while retrying | No additional pages reached compared to 5s |
 
-Each step shows a clear correlation: slowing the cadence pushes the
-challenge later in the run. Page 4 is the final page (4 × 30 = 120,
-sliced to 100), so a 10-second delay has a real chance of completing
-the full sequence.
+The data shows the delay matters up to ~5s, then stops mattering — at
+which point we're hitting Cloudflare's per-IP reputation scoring,
+which is not a thing further client-side delay can fix.
 
-This is a probabilistic fix tuned by observed behavior, not a
-guarantee. If 10 seconds still isn't enough, the honest move is to
-**accept the failure as today's portfolio limitation** rather than
-chase Cloudflare's heuristics further with code changes — that game
-is unwinnable from cloud IPs.
+## Decision: accept and stop tuning
+
+Settling at **5000 ms**. The 10s value gave no extra coverage, and
+its longer retry timeline pushed us into the 5-minute job timeout
+when retries fired. 5s is the better operating point.
+
+This is now an **accepted known weakness**: when GitHub Actions
+runner IPs are flagged by Cloudflare for HN, our scheduled UI run
+fails for the day. Tomorrow's run, on a freshly-scheduled runner with
+a different IP and a recovered Cloudflare reputation, will likely
+succeed. We don't fight the upstream further — the game of "evade
+Cloudflare from cloud IPs" is unwinnable and not the right thing for
+a QA portfolio to be doing anyway.
+
+The badge will be red today. The finding documents why. Tomorrow's
+green run is the real signal.
 
 ## Alternatives considered and rejected
 

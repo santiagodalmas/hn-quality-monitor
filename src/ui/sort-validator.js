@@ -15,7 +15,7 @@ const PAGE_LOAD_TIMEOUT_MS = 30_000;
 const MAX_PAGINATION_CLICKS = 10; // 30 items per page; 4 is enough, 10 is generous
 const RATE_LIMIT_MAX_RETRIES = 5;
 const RATE_LIMIT_BACKOFF_MS = 10_000;
-const POLITE_DELAY_MS = 10_000; // pause between page loads — bumped 1.5s → 5s → 10s on 2026-05-07 chasing Cloudflare's tighter per-IP window for cloud runners; see findings/2026-05-07-cloudflare-recurrence.md
+const POLITE_DELAY_MS = 5_000; // pause between page loads. Tuned 1.5s → 5s on 2026-05-07; 10s tested but offered no further improvement, so settled at 5s. See findings/2026-05-07-cloudflare-recurrence.md.
 
 // Minimal ANSI colors — no dependency, degrades gracefully in plain terminals.
 const c = {
